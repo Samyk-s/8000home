@@ -31,24 +31,44 @@ export default function Marker3D({
   const hitboxRef = useRef<THREE.Mesh>(null!);
   const { camera, size, scene } = useThree();
 
-  // 🧭 Raycast downwards to find ground
+  // 🧭 Raycast downwards to find Everest ground (robust for production)
   useEffect(() => {
     const raycaster = new THREE.Raycaster();
-    raycaster.set(new THREE.Vector3(...position), new THREE.Vector3(0, -1, 0));
-    const hits = raycaster.intersectObjects(scene.children, true);
-    if (hits.length > 0) {
-      const p = hits[0].point;
-      setGroundedPos([p.x, p.y + 0.2, p.z]);
-    } else {
-      setGroundedPos(position);
+
+    function doRaycast() {
+      const mountain = scene.getObjectByName("EverestMesh");
+      if (!mountain) {
+        // Retry in case model hasn't loaded yet
+        setTimeout(doRaycast, 800);
+        return;
+      }
+
+      // Perform downward raycast
+      raycaster.set(new THREE.Vector3(...position), new THREE.Vector3(0, -1, 0));
+      const hits = raycaster.intersectObject(mountain, true);
+
+      if (hits.length > 0 && hits[0].point.y < 20) {
+        const p = hits[0].point;
+        setGroundedPos([p.x, p.y + 0.25, p.z]);
+      } else {
+        // Fallback if no hit found (prevent flying markers)
+        setGroundedPos([position[0], Math.min(position[1], 5), position[2]]);
+      }
     }
+
+    doRaycast();
   }, [position, scene]);
 
+  // 🧩 Animate scale + orient label toward camera
   useFrame(() => {
     const target = hovered ? 1.4 : 1;
     setIconScale((s) => s + (target - s) * 0.1);
-    if (textRef.current) textRef.current.quaternion.copy(camera.quaternion);
 
+    if (textRef.current) {
+      textRef.current.quaternion.copy(camera.quaternion);
+    }
+
+    // Project screen position for hover tooltip
     if (hovered && hitboxRef.current) {
       const v = new THREE.Vector3();
       v.setFromMatrixPosition(hitboxRef.current.matrixWorld);
@@ -69,7 +89,7 @@ export default function Marker3D({
       {/* 🏷️ Text ABOVE the icon */}
       <Text
         ref={textRef}
-        position={[0, 0.6, 0]} // 👈 lifted above the mountain
+        position={[0, 0.6, 0]} // Lifted above the mountain
         fontSize={0.22}
         color={hovered ? (color || "red") : color || "black"}
         anchorX="center"

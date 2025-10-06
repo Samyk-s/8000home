@@ -30,9 +30,12 @@ export default function Everest({ onLoaded, debugAxes = false }: EverestProps) {
     if (!group) return;
 
     try {
-      // Insert the GLTF scene into our wrapper group
+      // ✅ Clear and reinsert model
       group.clear();
       group.add(scene);
+
+      // Give it a name so Marker3D can target it
+      group.name = "EverestMesh";
 
       // Rotate only if the model was exported as Z-up (SketchUp default)
       if (SKETCHUP_ZUP) {
@@ -41,7 +44,7 @@ export default function Everest({ onLoaded, debugAxes = false }: EverestProps) {
         group.rotation.set(0, 0, 0);
       }
 
-      // Compute the bounding box for scaling + centering
+      // Compute bounding box for scaling + centering
       const box = new THREE.Box3().setFromObject(group);
       const size = new THREE.Vector3();
       const center = new THREE.Vector3();
@@ -72,13 +75,15 @@ export default function Everest({ onLoaded, debugAxes = false }: EverestProps) {
         `✅ Everest ready (rotated=${SKETCHUP_ZUP ? "Z-up→Y-up" : "none"}, height=${desiredHeight})`
       );
 
+      // Notify parent that model is ready
       onLoaded?.();
     } catch (e) {
       console.error("❌ Everest setup error:", e);
     }
   }, [scene, onLoaded, debugAxes]);
 
-  return <group ref={groupRef} />;
+  // ✅ Named group used by Marker3D for raycast
+  return <group ref={groupRef} name="EverestMesh" />;
 }
 
 // ✅ Preload using the same exact path
