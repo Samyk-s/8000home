@@ -98,7 +98,7 @@ function SceneContent({
 }) {
   const { camera, size } = useThree();
 
-  // ✅ Fixed projection (uses canvas size, not window)
+  // ✅ Use canvas size, not window size
   function projectToScreen(pos: [number, number, number]) {
     const vector = new THREE.Vector3(...pos).project(camera);
     return {
@@ -107,6 +107,7 @@ function SceneContent({
     };
   }
 
+  // Force controls to aim at target
   useEffect(() => {
     if (controlsRef.current) {
       controlsRef.current.target.copy(defaultTarget);
@@ -173,7 +174,7 @@ function SceneContent({
   );
 }
 
-/* 🎯 Google Earth–style zoom */
+/* 🎯 Stable & Consistent Google Earth–style zoom */
 function EarthLikeZoom({
   controlsRef,
   defaultTarget,
@@ -186,9 +187,16 @@ function EarthLikeZoom({
   const mouse = new THREE.Vector2();
   const lastTargetRef = useRef<THREE.Vector3 | null>(null);
 
+  // ✅ Ensure camera projection matrix and controls sync
+  useEffect(() => {
+    camera.updateProjectionMatrix();
+    if (controlsRef.current) controlsRef.current.update();
+  }, [camera, controlsRef]);
+
   useEffect(() => {
     function onWheel(event: WheelEvent) {
       if (!controlsRef.current) return;
+      event.preventDefault();
 
       const rect = gl.domElement.getBoundingClientRect();
       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -197,22 +205,26 @@ function EarthLikeZoom({
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(scene.children, true);
 
-      if (intersects.length > 0 && !lastTargetRef.current) {
+      // Always re-target if hit new point
+      if (intersects.length > 0) {
         lastTargetRef.current = intersects[0].point.clone();
       }
 
       const point = lastTargetRef.current || defaultTarget;
       const controls = controlsRef.current;
-      const dir = new THREE.Vector3()
-        .subVectors(point, camera.position)
-        .normalize();
+      const dir = new THREE.Vector3().subVectors(point, camera.position).normalize();
+
+      // Normalize zoom speed relative to camera distance
+      const distance = camera.position.distanceTo(point);
+      const zoomStep = Math.min(Math.max(distance * 0.1, 0.5), 4); // smoother and consistent
 
       if (event.deltaY < 0) {
-        camera.position.addScaledVector(dir, 2);
+        // Zoom in
+        camera.position.addScaledVector(dir, zoomStep);
         controls.target.lerp(point, 0.25);
       } else {
-        camera.position.addScaledVector(dir, -2);
-
+        // Zoom out
+        camera.position.addScaledVector(dir, -zoomStep);
         if (camera.position.length() > 21) {
           camera.position.setLength(21);
           controls.target.copy(defaultTarget);
@@ -230,50 +242,7 @@ function EarthLikeZoom({
   return null;
 }
 
-/* 🧭 Debug — click to log coordinates (COMMENTED OUT for demo) */
-// function DebugClickLogger() {
-//   const { camera, gl, scene, size } = useThree();
-//   const raycaster = new THREE.Raycaster();
-//   const mouse = new THREE.Vector2();
-//   const sphereRef = useRef<THREE.Mesh>(null);
-
-//   useEffect(() => {
-//     function onClick(event: MouseEvent) {
-//       const rect = gl.domElement.getBoundingClientRect();
-//       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-//       mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-//       raycaster.setFromCamera(mouse, camera);
-//       const intersects = raycaster.intersectObjects(scene.children, true);
-
-//       if (intersects.length > 0) {
-//         const point = intersects[0].point;
-//         console.log(
-//           `📍 Marker position: [${point.x.toFixed(2)}, ${point.y.toFixed(
-//             2
-//           )}, ${point.z.toFixed(2)}]`
-//         );
-
-//         if (sphereRef.current) {
-//           sphereRef.current.position.copy(point);
-//           sphereRef.current.visible = true;
-//         }
-//       }
-//     }
-
-//     gl.domElement.addEventListener("click", onClick);
-//     return () => gl.domElement.removeEventListener("click", onClick);
-//   }, [camera, gl, scene]);
-
-//   return (
-//     <mesh ref={sphereRef} visible={false}>
-//       <sphereGeometry args={[0.1, 16, 16]} />
-//       <meshStandardMaterial color="lime" emissive="lime" emissiveIntensity={2} />
-//     </mesh>
-//   );
-// }
-
-/* 🚀 Main SceneCanvas (daytime + realistic clouds + zoom + fixed projection) */
+/* 🚀 Main SceneCanvas (daytime + realistic clouds + smooth zoom) */
 export default function SceneCanvas({
   markers,
   onMarkerHover,
@@ -301,7 +270,12 @@ export default function SceneCanvas({
       style={{ background: "transparent" }}
       onClick={() => setIsAutoRotate(false)}
     >
-      <PerspectiveCamera makeDefault fov={50} position={[0, 10, 24]} />
+      <PerspectiveCamera
+        makeDefault
+        fov={50}
+        position={[0, 10, 24]}
+        onUpdate={(self) => self.updateProjectionMatrix()}
+      />
 
       <SceneContent
         markers={markers}
@@ -312,9 +286,6 @@ export default function SceneCanvas({
       />
 
       <EarthLikeZoom controlsRef={controlsRef} defaultTarget={defaultTarget} />
-
-      {/* 🧭 Debug logger (disabled for demo) */}
-      {/* <DebugClickLogger /> */}
     </Canvas>
   );
 }
