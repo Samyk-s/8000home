@@ -8,33 +8,28 @@ import Everest from "./Everest";
 import Marker3D from "./Marker3D";
 import type { Marker } from "./markers";
 
-/* ☁️ Volumetric-looking clouds using transparent planes + drifting motion */
+/* ☁️ Volumetric-looking drifting clouds */
 function RealisticClouds() {
   const groupRef = useRef<THREE.Group>(null);
 
   const texture = useMemo(() => {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d")!;
-    canvas.width = 256;
-    canvas.height = 256;
-
-    const gradient = ctx.createRadialGradient(128, 128, 30, 128, 128, 128);
-    gradient.addColorStop(0, "rgba(255,255,255,0.9)");
-    gradient.addColorStop(0.5, "rgba(255,255,255,0.4)");
-    gradient.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = gradient;
+    canvas.width = canvas.height = 256;
+    const g = ctx.createRadialGradient(128, 128, 30, 128, 128, 128);
+    g.addColorStop(0, "rgba(255,255,255,0.9)");
+    g.addColorStop(0.5, "rgba(255,255,255,0.4)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
     ctx.fillRect(0, 0, 256, 256);
-
     const tex = new THREE.CanvasTexture(canvas);
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.minFilter = tex.magFilter = THREE.LinearFilter;
     return tex;
   }, []);
 
   const clouds = useMemo(
     () =>
-      new Array(30).fill(0).map(() => ({
+      Array.from({ length: 30 }).map(() => ({
         pos: [
           Math.random() * 300 - 150,
           Math.random() * 50 + 30,
@@ -75,7 +70,7 @@ function RealisticClouds() {
   );
 }
 
-/* 🌍 SceneContent (day only, realistic clouds + accurate projection + Y-fix) */
+/* 🌍 SceneContent */
 function SceneContent({
   markers,
   onMarkerHover,
@@ -93,74 +88,59 @@ function SceneContent({
   controlsRef: React.MutableRefObject<any>;
   defaultTarget: THREE.Vector3;
 }) {
-  const { camera, size, gl } = useThree();
+  const { camera, size, gl, scene } = useThree();
   const [ready, setReady] = useState(false);
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
 
-  // ✅ Wait for layout & camera to stabilize (prevents Y-axis drift)
+  // sync projection
   useEffect(() => {
-    const handle = () => {
-      requestAnimationFrame(() => {
-        camera.updateProjectionMatrix();
-        if (controlsRef.current) controlsRef.current.update();
-        setReady(true);
-      });
-    };
-    handle();
-    const resize = () => handle();
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, [camera, gl, controlsRef]);
+    requestAnimationFrame(() => {
+      camera.updateProjectionMatrix();
+      controlsRef.current?.update();
+      setReady(true);
+    });
 
-  // ✅ Project using real canvas size
+    // 🧭 click to log coordinates
+    const handleClick = (e: MouseEvent) => {
+      const rect = gl.domElement.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
+      const mountain = scene.getObjectByName("EverestMesh");
+      if (!mountain) return;
+
+      const hits = raycaster.intersectObject(mountain, true);
+      if (hits.length > 0) {
+        const { x, y, z } = hits[0].point;
+        // ✅ log in array format
+        console.log(`[${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}]`);
+      }
+    };
+
+    gl.domElement.addEventListener("click", handleClick);
+    return () => gl.domElement.removeEventListener("click", handleClick);
+  }, [camera, gl, scene, controlsRef]);
+
   function projectToScreen(pos: [number, number, number]) {
-    const vector = new THREE.Vector3(...pos).project(camera);
-    return {
-      x: (vector.x * 0.5 + 0.5) * size.width,
-      y: (-vector.y * 0.5 + 0.5) * size.height,
-    };
+    const v = new THREE.Vector3(...pos).project(camera);
+    return { x: (v.x * 0.5 + 0.5) * size.width, y: (-v.y * 0.5 + 0.5) * size.height };
   }
-
-  useEffect(() => {
-    if (controlsRef.current) {
-      controlsRef.current.target.copy(defaultTarget);
-      controlsRef.current.update();
-    }
-  }, [controlsRef, defaultTarget]);
 
   return (
     <>
-      {/* ☀️ Sky */}
-      <Sky
-        distance={450000}
-        sunPosition={[100, 40, 100]}
-        inclination={0.48}
-        azimuth={0.25}
-      />
-
-      {/* ☁️ Realistic drifting clouds */}
+      <Sky distance={450000} sunPosition={[100, 40, 100]} inclination={0.48} azimuth={0.25} />
       <RealisticClouds />
+      <fog attach="fog" args={["#e6eef5", 40, 180]} />
 
-      {/* 🌫️ Atmospheric fog */}
-      <fog attach="fog" args={["#c9d9e8", 25, 140]} />
-
-      {/* 💡 Lighting */}
-      <ambientLight intensity={0.7} />
-      <directionalLight
-        position={[20, 50, 10]}
-        intensity={2.4}
-        color="#ffffff"
-        castShadow
-      />
+      {/* 💡 Soft shadow-free lighting */}
+      <ambientLight intensity={0.9} color="#ffffff" />
+      <directionalLight position={[20, 50, 10]} intensity={1.8} color="#ffffff" />
       <pointLight position={[-10, 20, -20]} intensity={0.3} />
 
-      {/* 🏔️ Model + Markers */}
       <Suspense fallback={null}>
-<Everest onLoaded={() => {
-  // Ensure camera/controls projection is consistent after GLTF scaling
-  if (controlsRef.current) {
-    controlsRef.current.update();
-  }
-}} />
+        <Everest onLoaded={() => controlsRef.current?.update()} />
         {ready &&
           markers.map((m, i) => (
             <Marker3D
@@ -169,14 +149,13 @@ function SceneContent({
               label={m.label}
               position={m.position}
               onHoverChange={(isHovered) => {
-                const screenPos = projectToScreen(m.position);
-                onMarkerHover(m.description, screenPos, isHovered);
+                const s = projectToScreen(m.position);
+                onMarkerHover(m.description, s, isHovered);
               }}
             />
           ))}
       </Suspense>
 
-      {/* 🎮 Controls */}
       <OrbitControls
         ref={controlsRef}
         enablePan={false}
@@ -192,7 +171,7 @@ function SceneContent({
   );
 }
 
-/* 🎯 Stable & Consistent Google Earth–style zoom */
+/* 🎯 Earth-like zoom */
 function EarthLikeZoom({
   controlsRef,
   defaultTarget,
@@ -206,46 +185,29 @@ function EarthLikeZoom({
   const lastTargetRef = useRef<THREE.Vector3 | null>(null);
 
   useEffect(() => {
-    camera.updateProjectionMatrix();
-    if (controlsRef.current) controlsRef.current.update();
-  }, [camera, controlsRef]);
-
-  useEffect(() => {
-    function onWheel(event: WheelEvent) {
-      if (!controlsRef.current) return;
-      event.preventDefault();
-
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
       const rect = gl.domElement.getBoundingClientRect();
-      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(scene.children, true);
-      if (intersects.length > 0) {
-        lastTargetRef.current = intersects[0].point.clone();
+      const inter = raycaster.intersectObjects(scene.children, true);
+      if (inter.length > 0) lastTargetRef.current = inter[0].point.clone();
+
+      const p = lastTargetRef.current || defaultTarget;
+      const ctrl = controlsRef.current;
+      const dir = new THREE.Vector3().subVectors(p, camera.position).normalize();
+      const dist = camera.position.distanceTo(p);
+      const step = Math.min(Math.max(dist * 0.1, 0.5), 4);
+
+      if (e.deltaY < 0) camera.position.addScaledVector(dir, step);
+      else {
+        camera.position.addScaledVector(dir, -step);
+        if (camera.position.length() > 21) camera.position.setLength(21);
       }
-
-      const point = lastTargetRef.current || defaultTarget;
-      const controls = controlsRef.current;
-      const dir = new THREE.Vector3().subVectors(point, camera.position).normalize();
-      const distance = camera.position.distanceTo(point);
-      const zoomStep = Math.min(Math.max(distance * 0.1, 0.5), 4);
-
-      if (event.deltaY < 0) {
-        camera.position.addScaledVector(dir, zoomStep);
-        controls.target.lerp(point, 0.25);
-      } else {
-        camera.position.addScaledVector(dir, -zoomStep);
-        if (camera.position.length() > 21) {
-          camera.position.setLength(21);
-          controls.target.copy(defaultTarget);
-          lastTargetRef.current = null;
-        }
-      }
-
-      controls.update();
+      ctrl.target.copy(p);
+      ctrl.update();
     }
-
     gl.domElement.addEventListener("wheel", onWheel, { passive: false });
     return () => gl.domElement.removeEventListener("wheel", onWheel);
   }, [camera, gl, scene, controlsRef, defaultTarget]);
@@ -253,7 +215,7 @@ function EarthLikeZoom({
   return null;
 }
 
-/* 🚀 Main SceneCanvas (daytime + realistic clouds + stable Y projection) */
+/* 🚀 Main SceneCanvas */
 export default function SceneCanvas({
   markers,
   onMarkerHover,
@@ -271,26 +233,19 @@ export default function SceneCanvas({
 
   return (
     <Canvas
-      shadows
+      shadows={false}
       dpr={[1, 2]}
       gl={{
-  antialias: true,
-  precision: "highp",
-  toneMapping: THREE.ACESFilmicToneMapping,
-  outputColorSpace: THREE.SRGBColorSpace,
-  alpha: true,
-}}
-
-      style={{ background: "transparent" }}
+        antialias: true,
+        precision: "highp",
+        toneMapping: THREE.ACESFilmicToneMapping,
+        outputColorSpace: THREE.SRGBColorSpace,
+        alpha: true,
+      }}
+      style={{ background: "transparent", cursor: "crosshair" }}
       onClick={() => setIsAutoRotate(false)}
     >
-      <PerspectiveCamera
-        makeDefault
-        fov={50}
-        position={[0, 10, 24]}
-        onUpdate={(self) => self.updateProjectionMatrix()}
-      />
-
+      <PerspectiveCamera makeDefault fov={50} position={[0, 10, 24]} />
       <SceneContent
         markers={markers}
         onMarkerHover={onMarkerHover}
@@ -298,7 +253,6 @@ export default function SceneCanvas({
         controlsRef={controlsRef}
         defaultTarget={defaultTarget}
       />
-
       <EarthLikeZoom controlsRef={controlsRef} defaultTarget={defaultTarget} />
     </Canvas>
   );

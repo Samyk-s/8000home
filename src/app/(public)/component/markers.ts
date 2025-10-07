@@ -7,7 +7,7 @@ export type Marker = {
 export const markers: Marker[] = [
   {
     label: "Mount Everest",
-    position: [-10, -2, 5],
+    position: [-6.94, -0.67, 3.03],
     description: "Mount Everest (8848.86 m) – Nepal/China",
   },
 
@@ -24,8 +24,18 @@ export const markers: Marker[] = [
 
   {
     label: "Annapurna I",
-    position: [-10, -1, 5],
+    position: [-11.20, -1.02, 4.92],
     description: "Annapurna I (8091 m) – Nepal",
   },
 
+{
+    label: "Mt. Lhotse",
+    position: [-4.66, -0.66, -5.14],
+    description: "Annapurna I (8091 m) – Nepal",
+  },
+{
+    label: "Mt. K2",
+    position:   [-9.59, -1.75, -10.33],
+    description: "Annapurna I (8091 m) – Nepal",
+  },
 ];
