@@ -155,7 +155,12 @@ function SceneContent({
 
       {/* 🏔️ Model + Markers */}
       <Suspense fallback={null}>
-        <Everest />
+<Everest onLoaded={() => {
+  // Ensure camera/controls projection is consistent after GLTF scaling
+  if (controlsRef.current) {
+    controlsRef.current.update();
+  }
+}} />
         {ready &&
           markers.map((m, i) => (
             <Marker3D
@@ -269,10 +274,13 @@ export default function SceneCanvas({
       shadows
       dpr={[1, 2]}
       gl={{
-        toneMapping: THREE.ACESFilmicToneMapping,
-        outputColorSpace: THREE.SRGBColorSpace,
-        alpha: true,
-      }}
+  antialias: true,
+  precision: "highp",
+  toneMapping: THREE.ACESFilmicToneMapping,
+  outputColorSpace: THREE.SRGBColorSpace,
+  alpha: true,
+}}
+
       style={{ background: "transparent" }}
       onClick={() => setIsAutoRotate(false)}
     >
