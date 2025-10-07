@@ -1,60 +1,90 @@
 "use client";
 
-import React, { Suspense, useRef, useState, useEffect } from "react";
+import React, { Suspense, useRef, useState, useEffect, useMemo } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Sky, Stars, PerspectiveCamera } from "@react-three/drei";
+import { OrbitControls, Sky, PerspectiveCamera } from "@react-three/drei";
 import * as THREE from "three";
 import Everest from "./Everest";
 import Marker3D from "./Marker3D";
 import type { Marker } from "./markers";
 
-// 🌠 Shooting Stars
-function ShootingStars() {
+/* ☁️ Volumetric-looking clouds using transparent planes + drifting motion */
+function RealisticClouds() {
   const groupRef = useRef<THREE.Group>(null);
-  const stars = new Array(5).fill(0).map(() => ({
-    pos: [
-      Math.random() * 400 - 200,
-      Math.random() * 200 + 50,
-      Math.random() * 400 - 200,
-    ] as [number, number, number],
-    speed: Math.random() * 0.5 + 0.2,
-  }));
 
+  // Create a soft radial alpha gradient for cloud texture
+  const texture = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d")!;
+    canvas.width = 256;
+    canvas.height = 256;
+
+    const gradient = ctx.createRadialGradient(128, 128, 30, 128, 128, 128);
+    gradient.addColorStop(0, "rgba(255,255,255,0.9)");
+    gradient.addColorStop(0.5, "rgba(255,255,255,0.4)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 256, 256);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  }, []);
+
+  // Randomized drifting cloud layers
+  const clouds = useMemo(
+    () =>
+      new Array(30).fill(0).map(() => ({
+        pos: [
+          Math.random() * 300 - 150,
+          Math.random() * 50 + 30,
+          Math.random() * 300 - 150,
+        ] as [number, number, number],
+        scale: Math.random() * 60 + 80,
+        opacity: Math.random() * 0.4 + 0.25,
+        speed: Math.random() * 0.02 + 0.005,
+        rotationSpeed: (Math.random() - 0.5) * 0.001,
+      })),
+    []
+  );
+
+  // Animate the drift
   useFrame(() => {
     if (!groupRef.current) return;
     groupRef.current.children.forEach((child, i) => {
-      child.position.x -= stars[i].speed;
-      child.position.y -= stars[i].speed;
-      if (child.position.y < -20) {
-        child.position.set(
-          Math.random() * 400 - 200,
-          Math.random() * 200 + 50,
-          Math.random() * 400 - 200
-        );
-      }
+      child.position.x += clouds[i].speed;
+      child.rotation.z += clouds[i].rotationSpeed;
+      if (child.position.x > 160) child.position.x = -160;
     });
   });
 
   return (
     <group ref={groupRef}>
-      {stars.map((s, i) => (
-        <mesh key={i} position={s.pos}>
-          <sphereGeometry args={[0.3, 8, 8]} />
-          <meshBasicMaterial color="white" />
+      {clouds.map((c, i) => (
+        <mesh key={i} position={c.pos} rotation={[0, 0, Math.random() * Math.PI]}>
+          <planeGeometry args={[c.scale, c.scale * 0.6]} />
+          <meshBasicMaterial
+            map={texture}
+            transparent
+            opacity={c.opacity}
+            depthWrite={false}
+            side={THREE.DoubleSide}
+          />
         </mesh>
       ))}
     </group>
   );
 }
 
-// 🌍 SceneContent
+/* 🌍 SceneContent (day only, realistic clouds) */
 function SceneContent({
   markers,
   onMarkerHover,
   isAutoRotate,
   controlsRef,
   defaultTarget,
-  isNight,
 }: {
   markers: Marker[];
   onMarkerHover: (
@@ -65,7 +95,6 @@ function SceneContent({
   isAutoRotate: boolean;
   controlsRef: React.MutableRefObject<any>;
   defaultTarget: THREE.Vector3;
-  isNight: boolean;
 }) {
   const { camera } = useThree();
 
@@ -86,48 +115,29 @@ function SceneContent({
 
   return (
     <>
-      {/* 🌌 Sky */}
+      {/* ☀️ Sky */}
       <Sky
         distance={450000}
-        sunPosition={isNight ? [-100, -20, -100] : [100, 20, 100]}
-        inclination={isNight ? 0.6 : 0.49}
+        sunPosition={[100, 40, 100]}
+        inclination={0.48}
         azimuth={0.25}
       />
 
-      {isNight && (
-        <>
-          <Stars
-            radius={300}
-            depth={60}
-            count={5000}
-            factor={4}
-            saturation={0}
-            fade
-            speed={0.5}
-          />
-          {/* 🌙 Moon */}
-          <mesh position={[50, 80, -100]}>
-            <sphereGeometry args={[8, 32, 32]} />
-            <meshStandardMaterial
-              emissive={"#fdfbd3"}
-              emissiveIntensity={1.5}
-            />
-          </mesh>
-          <ShootingStars />
-        </>
-      )}
+      {/* ☁️ Realistic drifting clouds */}
+      <RealisticClouds />
 
-      {/* 💨 Fog */}
-      <fog attach="fog" args={[isNight ? "#000000" : "#dbe9f4", 15, 80]} />
+      {/* 🌫️ Atmospheric fog */}
+      <fog attach="fog" args={["#c9d9e8", 25, 140]} />
 
-      {/* 💡 Lights */}
-      <ambientLight intensity={isNight ? 0.2 : 0.5} />
+      {/* 💡 Natural sunlight */}
+      <ambientLight intensity={0.7} />
       <directionalLight
-        position={[10, 40, 10]}
-        intensity={isNight ? 0.5 : 2.2}
+        position={[20, 50, 10]}
+        intensity={2.4}
+        color="#ffffff"
         castShadow
       />
-      <pointLight position={[-15, -10, -10]} intensity={isNight ? 0.2 : 0.5} />
+      <pointLight position={[-10, 20, -20]} intensity={0.3} />
 
       {/* 🏔️ Model + Markers */}
       <Suspense fallback={null}>
@@ -162,7 +172,7 @@ function SceneContent({
   );
 }
 
-// 🎯 Google Earth style zoom
+/* 🎯 Google Earth–style zoom */
 function EarthLikeZoom({
   controlsRef,
   defaultTarget,
@@ -219,81 +229,50 @@ function EarthLikeZoom({
   return null;
 }
 
-// 🔭 Rotation watcher → toggles day/night
-function RotationWatcher({
-  controlsRef,
-  onToggleDayNight,
-}: {
-  controlsRef: any;
-  onToggleDayNight: () => void;
-}) {
-  const lastAngle = useRef(0);
-  const accumulated = useRef(0);
+/* 🧭 Debug — click to log coordinates (COMMENTED OUT for demo) */
+// function DebugClickLogger() {
+//   const { camera, gl, scene } = useThree();
+//   const raycaster = new THREE.Raycaster();
+//   const mouse = new THREE.Vector2();
+//   const sphereRef = useRef<THREE.Mesh>(null);
 
-  useFrame(() => {
-    if (!controlsRef.current) return;
-    const azimuth = controlsRef.current.getAzimuthalAngle();
-    const deg = THREE.MathUtils.radToDeg(azimuth);
+//   useEffect(() => {
+//     function onClick(event: MouseEvent) {
+//       const rect = gl.domElement.getBoundingClientRect();
+//       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+//       mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-    let delta = deg - lastAngle.current;
-    if (delta < -180) delta += 360;
-    if (delta > 180) delta -= 360;
+//       raycaster.setFromCamera(mouse, camera);
+//       const intersects = raycaster.intersectObjects(scene.children, true);
 
-    accumulated.current += Math.abs(delta);
+//       if (intersects.length > 0) {
+//         const point = intersects[0].point;
+//         console.log(
+//           `📍 Marker position: [${point.x.toFixed(2)}, ${point.y.toFixed(
+//             2
+//           )}, ${point.z.toFixed(2)}]`
+//         );
 
-    if (accumulated.current >= 360) {
-      onToggleDayNight(); // flip 🌞 ↔ 🌙
-      accumulated.current = 0;
-    }
+//         if (sphereRef.current) {
+//           sphereRef.current.position.copy(point);
+//           sphereRef.current.visible = true;
+//         }
+//       }
+//     }
 
-    lastAngle.current = deg;
-  });
+//     gl.domElement.addEventListener("click", onClick);
+//     return () => gl.domElement.removeEventListener("click", onClick);
+//   }, [camera, gl, scene]);
 
-  return null;
-}
+//   return (
+//     <mesh ref={sphereRef} visible={false}>
+//       <sphereGeometry args={[0.1, 16, 16]} />
+//       <meshStandardMaterial color="lime" emissive="lime" emissiveIntensity={2} />
+//     </mesh>
+//   );
+// }
 
-// 🧭 Debug helper — click to log coordinates
-function DebugClickLogger() {
-  const { camera, gl, scene } = useThree();
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2();
-  const sphereRef = useRef<THREE.Mesh>(null);
-
-  useEffect(() => {
-    function onClick(event: MouseEvent) {
-      const rect = gl.domElement.getBoundingClientRect();
-      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(scene.children, true);
-
-      if (intersects.length > 0) {
-        const point = intersects[0].point;
-        console.log(
-          `📍 Marker position: [${point.x.toFixed(2)}, ${point.y.toFixed(2)}, ${point.z.toFixed(2)}]`
-        );
-
-        if (sphereRef.current) {
-          sphereRef.current.position.copy(point);
-          sphereRef.current.visible = true;
-        }
-      }
-    }
-
-    gl.domElement.addEventListener("click", onClick);
-    return () => gl.domElement.removeEventListener("click", onClick);
-  }, [camera, gl, scene]);
-
-  return (
-    <mesh ref={sphereRef} visible={false}>
-      <sphereGeometry args={[0.1, 16, 16]} />
-      <meshStandardMaterial color="lime" emissive="lime" emissiveIntensity={2} />
-    </mesh>
-  );
-}
-
-// 🚀 Main SceneCanvas
+/* 🚀 Main SceneCanvas (daytime + realistic clouds + zoom) */
 export default function SceneCanvas({
   markers,
   onMarkerHover,
@@ -306,7 +285,6 @@ export default function SceneCanvas({
   ) => void;
 }) {
   const [isAutoRotate, setIsAutoRotate] = useState(true);
-  const [isNight, setIsNight] = useState(false);
   const controlsRef = useRef<any>(null);
   const defaultTarget = new THREE.Vector3(0, 0, 0);
 
@@ -322,7 +300,6 @@ export default function SceneCanvas({
       style={{ background: "transparent" }}
       onClick={() => setIsAutoRotate(false)}
     >
-      {/* ✅ Camera */}
       <PerspectiveCamera makeDefault fov={50} position={[0, 10, 24]} />
 
       <SceneContent
@@ -331,17 +308,12 @@ export default function SceneCanvas({
         isAutoRotate={isAutoRotate}
         controlsRef={controlsRef}
         defaultTarget={defaultTarget}
-        isNight={isNight}
       />
 
       <EarthLikeZoom controlsRef={controlsRef} defaultTarget={defaultTarget} />
-      <RotationWatcher
-        controlsRef={controlsRef}
-        onToggleDayNight={() => setIsNight((prev) => !prev)}
-      />
 
-      {/* 🧭 Click anywhere to log coordinates */}
-      <DebugClickLogger />
+      {/* 🧭 Debug logger (disabled for demo) */}
+      {/* <DebugClickLogger /> */}
     </Canvas>
   );
 }
