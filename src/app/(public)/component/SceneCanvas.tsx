@@ -12,7 +12,6 @@ import type { Marker } from "./markers";
 function RealisticClouds() {
   const groupRef = useRef<THREE.Group>(null);
 
-  // Create a soft radial alpha gradient for cloud texture
   const texture = useMemo(() => {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d")!;
@@ -33,7 +32,6 @@ function RealisticClouds() {
     return tex;
   }, []);
 
-  // Randomized drifting cloud layers
   const clouds = useMemo(
     () =>
       new Array(30).fill(0).map(() => ({
@@ -50,7 +48,6 @@ function RealisticClouds() {
     []
   );
 
-  // Animate the drift
   useFrame(() => {
     if (!groupRef.current) return;
     groupRef.current.children.forEach((child, i) => {
@@ -78,7 +75,7 @@ function RealisticClouds() {
   );
 }
 
-/* 🌍 SceneContent (day only, realistic clouds + accurate projection) */
+/* 🌍 SceneContent (day only, realistic clouds + accurate projection + Y-fix) */
 function SceneContent({
   markers,
   onMarkerHover,
@@ -96,9 +93,25 @@ function SceneContent({
   controlsRef: React.MutableRefObject<any>;
   defaultTarget: THREE.Vector3;
 }) {
-  const { camera, size } = useThree();
+  const { camera, size, gl } = useThree();
+  const [ready, setReady] = useState(false);
 
-  // ✅ Use canvas size, not window size
+  // ✅ Wait for layout & camera to stabilize (prevents Y-axis drift)
+  useEffect(() => {
+    const handle = () => {
+      requestAnimationFrame(() => {
+        camera.updateProjectionMatrix();
+        if (controlsRef.current) controlsRef.current.update();
+        setReady(true);
+      });
+    };
+    handle();
+    const resize = () => handle();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, [camera, gl, controlsRef]);
+
+  // ✅ Project using real canvas size
   function projectToScreen(pos: [number, number, number]) {
     const vector = new THREE.Vector3(...pos).project(camera);
     return {
@@ -107,7 +120,6 @@ function SceneContent({
     };
   }
 
-  // Force controls to aim at target
   useEffect(() => {
     if (controlsRef.current) {
       controlsRef.current.target.copy(defaultTarget);
@@ -131,7 +143,7 @@ function SceneContent({
       {/* 🌫️ Atmospheric fog */}
       <fog attach="fog" args={["#c9d9e8", 25, 140]} />
 
-      {/* 💡 Natural sunlight */}
+      {/* 💡 Lighting */}
       <ambientLight intensity={0.7} />
       <directionalLight
         position={[20, 50, 10]}
@@ -144,18 +156,19 @@ function SceneContent({
       {/* 🏔️ Model + Markers */}
       <Suspense fallback={null}>
         <Everest />
-        {markers.map((m, i) => (
-          <Marker3D
-            key={m.label}
-            index={i}
-            label={m.label}
-            position={m.position}
-            onHoverChange={(isHovered) => {
-              const screenPos = projectToScreen(m.position);
-              onMarkerHover(m.description, screenPos, isHovered);
-            }}
-          />
-        ))}
+        {ready &&
+          markers.map((m, i) => (
+            <Marker3D
+              key={m.label}
+              index={i}
+              label={m.label}
+              position={m.position}
+              onHoverChange={(isHovered) => {
+                const screenPos = projectToScreen(m.position);
+                onMarkerHover(m.description, screenPos, isHovered);
+              }}
+            />
+          ))}
       </Suspense>
 
       {/* 🎮 Controls */}
@@ -187,7 +200,6 @@ function EarthLikeZoom({
   const mouse = new THREE.Vector2();
   const lastTargetRef = useRef<THREE.Vector3 | null>(null);
 
-  // ✅ Ensure camera projection matrix and controls sync
   useEffect(() => {
     camera.updateProjectionMatrix();
     if (controlsRef.current) controlsRef.current.update();
@@ -204,8 +216,6 @@ function EarthLikeZoom({
 
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(scene.children, true);
-
-      // Always re-target if hit new point
       if (intersects.length > 0) {
         lastTargetRef.current = intersects[0].point.clone();
       }
@@ -213,17 +223,13 @@ function EarthLikeZoom({
       const point = lastTargetRef.current || defaultTarget;
       const controls = controlsRef.current;
       const dir = new THREE.Vector3().subVectors(point, camera.position).normalize();
-
-      // Normalize zoom speed relative to camera distance
       const distance = camera.position.distanceTo(point);
-      const zoomStep = Math.min(Math.max(distance * 0.1, 0.5), 4); // smoother and consistent
+      const zoomStep = Math.min(Math.max(distance * 0.1, 0.5), 4);
 
       if (event.deltaY < 0) {
-        // Zoom in
         camera.position.addScaledVector(dir, zoomStep);
         controls.target.lerp(point, 0.25);
       } else {
-        // Zoom out
         camera.position.addScaledVector(dir, -zoomStep);
         if (camera.position.length() > 21) {
           camera.position.setLength(21);
@@ -242,7 +248,7 @@ function EarthLikeZoom({
   return null;
 }
 
-/* 🚀 Main SceneCanvas (daytime + realistic clouds + smooth zoom) */
+/* 🚀 Main SceneCanvas (daytime + realistic clouds + stable Y projection) */
 export default function SceneCanvas({
   markers,
   onMarkerHover,
