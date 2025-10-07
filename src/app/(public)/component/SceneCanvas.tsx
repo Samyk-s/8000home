@@ -78,7 +78,7 @@ function RealisticClouds() {
   );
 }
 
-/* 🌍 SceneContent (day only, realistic clouds) */
+/* 🌍 SceneContent (day only, realistic clouds + accurate projection) */
 function SceneContent({
   markers,
   onMarkerHover,
@@ -96,13 +96,14 @@ function SceneContent({
   controlsRef: React.MutableRefObject<any>;
   defaultTarget: THREE.Vector3;
 }) {
-  const { camera } = useThree();
+  const { camera, size } = useThree();
 
+  // ✅ Fixed projection (uses canvas size, not window)
   function projectToScreen(pos: [number, number, number]) {
     const vector = new THREE.Vector3(...pos).project(camera);
     return {
-      x: (vector.x * 0.5 + 0.5) * window.innerWidth,
-      y: (-vector.y * 0.5 + 0.5) * window.innerHeight,
+      x: (vector.x * 0.5 + 0.5) * size.width,
+      y: (-vector.y * 0.5 + 0.5) * size.height,
     };
   }
 
@@ -231,7 +232,7 @@ function EarthLikeZoom({
 
 /* 🧭 Debug — click to log coordinates (COMMENTED OUT for demo) */
 // function DebugClickLogger() {
-//   const { camera, gl, scene } = useThree();
+//   const { camera, gl, scene, size } = useThree();
 //   const raycaster = new THREE.Raycaster();
 //   const mouse = new THREE.Vector2();
 //   const sphereRef = useRef<THREE.Mesh>(null);
@@ -272,7 +273,7 @@ function EarthLikeZoom({
 //   );
 // }
 
-/* 🚀 Main SceneCanvas (daytime + realistic clouds + zoom) */
+/* 🚀 Main SceneCanvas (daytime + realistic clouds + zoom + fixed projection) */
 export default function SceneCanvas({
   markers,
   onMarkerHover,
